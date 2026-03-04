@@ -1,5 +1,3 @@
-'use server'
-
 import fs from "node:fs/promises"
 import { tmpdir } from "os"
 import path from "path"
