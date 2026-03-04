@@ -1,6 +1,6 @@
 import * as React from "react"
 
-import { getRegistryComponent } from "@/lib/registry"
+import { getRegistryComponent } from "@/lib/registry-client"
 import { ComponentPreviewTabs } from "@/components/component-preview-tabs"
 import { ComponentSource } from "@/components/component-source"
 
