@@ -12,6 +12,8 @@ const nextConfig = {
   experimental: {
     inlineCss: true,
   },
+  swcMinify: true,
+  compress: true,
   images: {
     domains: ["localhost", "res.cloudinary.com", "avatar.vercel.sh", "pbs.twimg.com","pub-b3533f2e1c954842824758490b95c9d5.r2.dev","avatars.githubusercontent.com"],
   },
