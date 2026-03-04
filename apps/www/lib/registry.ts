@@ -1,9 +1,5 @@
-import fs from "node:fs/promises"
-import { tmpdir } from "os"
-import path from "path"
 import * as React from "react"
-import { RegistryItem, registryItemSchema } from "shadcn/schema"
-import { Project, ScriptKind } from "ts-morph"
+import { RegistryItem } from "shadcn/schema"
 
 import { Index } from "@/registry/__index__"
 
@@ -11,12 +7,6 @@ import { Index } from "@/registry/__index__"
 export interface RegistryItemFile {
   path: string
   content: string
-  type: RegistryItem["type"]
-  target: string
-}
-
-interface RegistryFile {
-  path: string
   type: RegistryItem["type"]
   target: string
 }
@@ -45,154 +35,27 @@ export async function getDemoItem(name: string) {
   // Most "demo" content is already present as `registry:example` items, so
   // `getRegistryItem` usually covers it. This helper exists as a fallback for
   // non-registry examples.
+  const { getRegistryItem } = await import("@/lib/registry-server")
   const item = await getRegistryItem(name)
   if (item) {
     return item
   }
 
-  return null
-}
-
-export async function getRegistryItem(name: string) {
-  const item = Index[name] as RegistryIndexItem
-
-  if (!item) {
-    return null
-  }
-
-  // Convert all file paths to object.
-  // TODO: remove when we migrate to new registry.
-  if (item.files) {
-    item.files = item.files.map(
-      (
-        file:
-          | string
-          | { path: string; type: RegistryItem["type"]; target: string }
-      ) =>
-        typeof file === "string"
-          ? { path: file, type: item.type, target: "" }
-          : file
-    )
-  }
-
-  // Fail early before doing expensive file operations.
-  const result = registryItemSchema.safeParse(item)
-  if (!result.success) {
-    return null
-  }
-
-  let files: typeof result.data.files = []
-  if (item.files) {
-    for (const file of item.files) {
-      const content = await getFileContent(file)
-      const relativePath = path.relative(process.cwd(), file.path)
-
-      files.push({
-        ...file,
-        path: relativePath,
-        content,
-      })
-    }
-  }
-
-  // Fix file paths.
-  files = fixFilePaths(files as RegistryItemFile[])
-
-  const parsed = registryItemSchema.safeParse({
-    ...result.data,
-    files,
-  })
-
-  if (!parsed.success) {
-    console.error(parsed.error.message)
-    return null
-  }
-
-  return parsed.data
-}
-
-async function getFileContent(file: RegistryFile) {
-  const raw = await fs.readFile(file.path, "utf-8")
-
-  const project = new Project({
-    compilerOptions: {},
-  })
-
-  const tempFile = await createTempSourceFile(file.path)
-  const sourceFile = project.createSourceFile(tempFile, raw, {
-    scriptKind: ScriptKind.TSX,
-  })
-
-  // Remove meta variables.
-  // removeVariable(sourceFile, "iframeHeight")
-  // removeVariable(sourceFile, "containerClassName")
-  // removeVariable(sourceFile, "description")
-
-  let code = sourceFile.getFullText()
-
-  // Some registry items uses default export.
-  // We want to use named export instead.
-  // TODO: do we really need this? - @shadcn.
-  if (file.type !== "registry:page") {
-    code = code.replaceAll("export default", "export")
-  }
-
-  // Fix imports.
-  code = fixImport(code)
-
-  return code
-}
-
-function getFileTarget(file: RegistryFile) {
-  let target = file.target
-
-  if (!target || target === "") {
-    const fileName = file.path.split("/").pop()
-    if (
-      file.type === "registry:block" ||
-      file.type === "registry:component" ||
-      file.type === "registry:example"
-    ) {
-      target = `components/${fileName}`
-    }
-
-    if (file.type === "registry:ui") {
-      target = `components/ui/${fileName}`
-    }
-
-    if (file.type === "registry:hook") {
-      target = `hooks/${fileName}`
-    }
-
-    if (file.type === "registry:lib") {
-      target = `lib/${fileName}`
-    }
-  }
-
-  return target ?? ""
-}
-
-async function createTempSourceFile(filename: string) {
-  const dir = await fs.mkdtemp(path.join(tmpdir(), "shadcn-"))
-  return path.join(dir, filename)
-}
-
-function fixFilePaths(files: RegistryItemFile[]) {
-  if (!files) {
-    return []
-  }
-
-  // Resolve all paths relative to the first file's directory.
-  const firstFilePath = files[0].path
-  const firstFilePathDir = path.dirname(firstFilePath)
-
-  return files.map((file) => {
+  // Fallback to the registry index item
+  const indexItem = Index[name]
+  if (indexItem) {
     return {
-      ...file,
-      path: path.relative(firstFilePathDir, file.path),
-      target: getFileTarget(file),
+      name: indexItem.name,
+      description: indexItem.description,
+      type: indexItem.type,
+      registryDependencies: indexItem.registryDependencies,
+      files: [],
+      component: indexItem.component,
+      meta: indexItem.meta,
     }
-  })
+  }
+
+  return null
 }
 
 export function fixImport(content: string) {
@@ -232,8 +95,8 @@ export function createFileTreeForRegistryItemFiles(
   const root: FileTree[] = []
 
   for (const file of files) {
-    const path = file.target ?? file.path
-    const parts = path.split("/")
+    const filePath = file.target ?? file.path
+    const parts = filePath.split("/")
     let currentLevel = root
 
     for (let i = 0; i < parts.length; i++) {
@@ -244,14 +107,14 @@ export function createFileTreeForRegistryItemFiles(
       if (existingNode) {
         if (isFile) {
           // Update existing file node with full path
-          existingNode.path = path
+          existingNode.path = filePath
         } else {
           // Move to next level in the tree
           currentLevel = existingNode.children!
         }
       } else {
         const newNode: FileTree = isFile
-          ? { name: part, path }
+          ? { name: part, path: filePath }
           : { name: part, children: [] }
 
         currentLevel.push(newNode)
